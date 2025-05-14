@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="it">
+  <head>
+    <link rel="Stylesheet" href="/workspaces/Informatica2425/TPSI/Arduino/Stili/StylePag1.css">
+    <!-- Definisce la codifica in UTF-8 -->
+    <meta charset="UTF-8">
+    <!-- Rende la pagina responsive -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Titolo della pagina -->
+    <title>Progetto Arduino: Giardino Intelligente Anti-Furto</title>
+  </head>
+
+  <body>
+    <!-- Header con ancora per "INDIETRO" -->
+    <header >
+      <h1>Progetto Arduino: Giardino Intelligente Anti-Furto</h1>
+      <p>Sistema di sicurezza per il monitoraggio del giardino con Arduino</p>
+    </header>
+
+    <!-- Menu di navigazione -->
+    <nav>
+      <ul>
+        <li><a href="/workspaces/Informatica2425/TPSI/Arduino/Pag4.html">Il fabbricato</a></li>
+      </ul>
+    </nav>
+
+              <section id="codici">
+        <h2>Codice Arduino</h2>
+        <p>Spiegazione del codice</p>
+        <div class="code-box">
+          <pre><code>
+            // Pin dichiarati
+const int pinTrig = 6;
+const int pinEcho = 4;
+const int pinBuzzer = 8;
+const int pinLedVerde = 7;
+const int pinLedRosso = 2;
+const int pinPulsante = 5;
+const int pinFotores = A1;
+const int pinServo = A2;
+
+// Pin per LCD (senza libreria)
+const int pinRS = 3;
+const int pinEN = 13;
+const int pinD4 = 10;
+const int pinD5 = 11;
+const int pinD6 = 9;
+const int pinD7 = 12;
+
+// Soglie
+const int sogliaDistanza = 10;
+const int sogliaLuce = 400;
+
+enum StatoAllarme { DISATTIVATO, ATTIVO };
+StatoAllarme stato = DISATTIVATO;
+StatoAllarme statoPrec = DISATTIVATO;
+
+Servo cancello;
+bool cancelloChiuso = false;
+
+// Icone per LCD
+byte sole[8] = {
+  B00100, B10101, B01110, B11111,
+  B01110, B10101, B00100, B00000
+};
+
+byte luna[8] = {
+  B00000, B00110, B01100, B11100,
+  B11100, B01100, B00110, B00000
+};
+
+void setup() {
+  Serial.begin(9600);
+
+  pinMode(pinTrig, OUTPUT);
+  pinMode(pinEcho, INPUT);
+  pinMode(pinBuzzer, OUTPUT);
+  pinMode(pinLedVerde, OUTPUT);
+  pinMode(pinLedRosso, OUTPUT);
+  pinMode(pinPulsante, INPUT_PULLUP);
+  pinMode(pinFotores, INPUT);
+
+  cancello.attach(pinServo);
+  cancello.write(0);
+
+  lcdInizializza();
+  creaIcone();
+  aggiornaDisplay();
+}
+
+void loop() {
+  bool premuto = digitalRead(pinPulsante) == LOW;
+  int luce = analogRead(pinFotores);
+  int distanza = misuraDistanza();
+
+  if (luce < sogliaLuce && !cancelloChiuso) {
+    muoviServoLento(0, 90);
+    cancelloChiuso = true;
+  } else if (luce >= sogliaLuce && cancelloChiuso) {
+    muoviServoLento(90, 0);
+    cancelloChiuso = false;
+  }
+
+  Serial.print("Distanza: ");
+  Serial.print(distanza);
+  Serial.print(" cm - Luce: ");
+  Serial.println(luce);
+
+  if (stato == ATTIVO && premuto) {
+    stato = DISATTIVATO;
+  } else if (stato == DISATTIVATO) {
+    if (distanza > 0 && distanza < sogliaDistanza && luce < sogliaLuce) {
+      stato = ATTIVO;
+    }
+  }
+
+  if (stato != statoPrec) {
+    aggiornaDisplay();
+    statoPrec = stato;
+  }
+
+  if (stato == ATTIVO) {
+    digitalWrite(pinLedRosso, HIGH);
+    digitalWrite(pinLedVerde, LOW);
+    tone(pinBuzzer, 2000);
+  } else {
+    digitalWrite(pinLedRosso, LOW);
+    digitalWrite(pinLedVerde, HIGH);
+    noTone(pinBuzzer);
+  }
+
+  aggiornaIconaLuce();
+  delay(100);
+}
+
+// — Funzioni LCD base (senza libreria) —
+
+void lcdComando(byte valore) {
+  digitalWrite(pinRS, LOW);
+  lcdInvia(valore);
+}
+
+void lcdScrivi(byte valore) {
+  digitalWrite(pinRS, HIGH);
+  lcdInvia(valore);
+}
+
+void lcdInvia(byte valore) {
+  digitalWrite(pinD4, (valore >> 4) & 1);
+  digitalWrite(pinD5, (valore >> 5) & 1);
+  digitalWrite(pinD6, (valore >> 6) & 1);
+  digitalWrite(pinD7, (valore >> 7) & 1);
+  lcdAbilita();
+
+  digitalWrite(pinD4, valore & 1);
+  digitalWrite(pinD5, (valore >> 1) & 1);
+  digitalWrite(pinD6, (valore >> 2) & 1);
+  digitalWrite(pinD7, (valore >> 3) & 1);
+  lcdAbilita();
+}
+
+void lcdAbilita() {
+  digitalWrite(pinEN, LOW);
+  delayMicroseconds(1);
+  digitalWrite(pinEN, HIGH);
+  delayMicroseconds(1);
+  digitalWrite(pinEN, LOW);
+  delayMicroseconds(100);
+}
+
+void lcdInizializza() {
+  pinMode(pinRS, OUTPUT);
+  pinMode(pinEN, OUTPUT);
+  pinMode(pinD4, OUTPUT);
+  pinMode(pinD5, OUTPUT);
+  pinMode(pinD6, OUTPUT);
+  pinMode(pinD7, OUTPUT);
+
+  delay(50);
+  digitalWrite(pinRS, LOW);
+  digitalWrite(pinD4, LOW);
+  digitalWrite(pinD5, HIGH);
+  digitalWrite(pinD6, LOW);
+  digitalWrite(pinD7, LOW);
+  lcdAbilita();
+
+  lcdComando(0x28); // 4-bit, 2 linee, 5x8
+  lcdComando(0x0C); // display ON, cursore OFF
+  lcdComando(0x06); // incremento
+  lcdComando(0x01); // clear
+  delay(2);
+}
+
+void lcdPulisci() {
+  lcdComando(0x01);
+  delay(2);
+}
+
+void lcdCursore(byte col, byte riga) {
+  byte posizioni[] = {0x00, 0x40};
+  lcdComando(0x80 | (col + posizioni[riga]));
+}
+
+void lcdStampa(const char* testo) {
+  while (*testo) {
+    lcdScrivi(*testo++);
+  }
+}
+
+// — Icone personalizzate —
+
+void creaIcone() {
+  lcdComando(0x40);
+  for (int i = 0; i < 8; i++) lcdScrivi(sole[i]);
+  for (int i = 0; i < 8; i++) lcdScrivi(luna[i]);
+}
+
+void aggiornaDisplay() {
+  int luce = analogRead(pinFotores);
+  lcdPulisci();
+
+  lcdCursore(0, 0);
+  if (stato == ATTIVO) {
+    lcdStampa("INTRUSIONE");
+    lcdCursore(0, 1);
+    lcdStampa("RILEVATA");
+  } else {
+    lcdStampa("ALLARME");
+    lcdCursore(0, 1);
+    lcdStampa("DISATTIVO");
+  }
+
+  lcdCursore(15, 0);
+  lcdScrivi(luce < sogliaLuce ? 1 : 0);
+}
+
+int misuraDistanza() {
+  digitalWrite(pinTrig, LOW);
+  delayMicroseconds(2);
+  digitalWrite(pinTrig, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(pinTrig, LOW);
+
+  long durata = pulseIn(pinEcho, HIGH, 30000);
+  if (durata == 0) return -1;
+  return durata * 0.0344 / 2;
+}
+
+void aggiornaIconaLuce() {
+  static int lucePrec = -1;
+  int luce = analogRead(pinFotores);
+
+  if (stato == DISATTIVATO) {
+    if ((luce < sogliaLuce && lucePrec >= sogliaLuce) ||
+        (luce >= sogliaLuce && lucePrec < sogliaLuce)) {
+      lcdCursore(15, 0);
+      lcdScrivi(luce < sogliaLuce ? 1 : 0);
+    }
+  }
+
+  lucePrec = luce;
+}
+
+// — Movimento lento del microservo —
+
+void muoviServoLento(int inizio, int fine) {
+  if (inizio < fine) {
+    for (int a = inizio; a <= fine; a++) {
+      cancello.write(a);
+      delay(20);
+    }
+  } else {
+    for (int a = inizio; a >= fine; a--) {
+      cancello.write(a);
+      delay(20);
+    }
+  }
+}
+          </code></pre>
+        </div>
+        <p class="return"><a href="#indietro">INDIETRO</a></p>
+      </section>
+
+
+    <section id="arduino">
+      <h2>Spiegazione Codice Arduino</h2>
+      <div class="explanation">
+
+  <h2>🔧 Definizione dei Pin e Variabili</h2>
+  <p>I pin sono assegnati ai seguenti componenti:</p>
+  <ul>
+    <li>Sensore ultrasuoni: TRIG = 6, ECHO = 4</li>
+    <li>Buzzer: 8</li>
+    <li>LED verde e rosso: 7 e 2</li>
+    <li>Pulsante: 5</li>
+    <li>Fotoresistenza: A1</li>
+    <li>Microservo: A2</li>
+    <li>LCD: RS = 3, EN = 13, D4–D7 = 10–12, 9</li>
+  </ul>
+
+  <p>Due soglie importanti:</p>
+  <ul>
+    <li><strong>sogliaDistanza = 10 cm</strong>: attiva l'allarme se un oggetto si avvicina troppo</li>
+    <li><strong>sogliaLuce = 400</strong>: determina se è giorno o notte</li>
+  </ul>
+
+  <p>Lo stato dell’allarme è gestito da un’enumerazione:</p>
+  <pre><span class="code">enum StatoAllarme { DISATTIVATO, ATTIVO };</span></pre>
+
+  <p>Il servo simula l’apertura/chiusura del cancello. La variabile <span class="code">bool cancelloChiuso</span> tiene traccia dello stato del cancello.</p>
+
+  <p>Sono definite icone personalizzate per sole 🌞 e luna 🌙 sul display LCD.</p>
+
+  <h2>⚙️ Setup iniziale</h2>
+  <p>Nel <span class="code">setup()</span> vengono inizializzati:</p>
+  <ul>
+    <li>I pin (input/output) tramite <span class="code">pinMode()</span></li>
+    <li>La comunicazione seriale con <span class="code">Serial.begin()</span></li>
+    <li>Il microservo con <span class="code">cancello.attach()</span> e posizionamento iniziale a 0°</li>
+    <li>Il display LCD con <span class="code">lcdInizializza()</span></li>
+    <li>Le icone personalizzate con <span class="code">creaIcone()</span></li>
+    <li>Il messaggio iniziale sullo schermo con <span class="code">aggiornaDisplay()</span></li>
+  </ul>
+
+  <h2>🔁 Loop Principale</h2>
+  <p>Ogni 100 ms vengono eseguite le seguenti operazioni:</p>
+  <ul>
+    <li>Controllo del pulsante: se premuto, disattiva l’allarme</li>
+    <li>Lettura della luce e della distanza</li>
+    <li>
+      Logica del cancello:
+      <ul>
+        <li>Se è notte (luce &lt; soglia) e il cancello è aperto → lo chiude lentamente</li>
+        <li>Se è giorno e il cancello è chiuso → lo apre</li>
+      </ul>
+    </li>
+    <li>Visualizza su seriale la distanza e la luce per debug</li>
+    <li>Se l’allarme è disattivo e viene rilevata una persona → attiva l’allarme</li>
+    <li>Se cambia stato, aggiorna il messaggio sul display LCD</li>
+    <li>
+      Attiva:
+      <ul>
+        <li>LED rosso + buzzer (2 kHz) se l’allarme è attivo</li>
+        <li>LED verde se l’allarme è disattivo</li>
+      </ul>
+    </li>
+    <li>Aggiorna l’icona giorno/notte sull’LCD (solo se l’allarme è disattivo)</li>
+  </ul>
+
+  <h2>📏 Funzione <span class="code">misuraDistanza()</span></h2>
+  <p>Invia un impulso di 10 µs al sensore a ultrasuoni e misura il tempo di ritorno. Calcola la distanza in centimetri:</p>
+  <pre><span class="code">durata * 0.0344 / 2</span></pre>
+  <p>Se non rileva nulla entro 30 ms, restituisce <span class="code">-1</span>.</p>
+
+  <h2>💡 Gestione del Display LCD</h2>
+  <p>Il display è pilotato manualmente (senza libreria) usando le seguenti funzioni:</p>
+  <ul>
+    <li><span class="code">lcdComando()</span>: invia un comando (pulizia, cursore...)</li>
+    <li><span class="code">lcdScrivi()</span>: stampa un carattere</li>
+    <li><span class="code">lcdInvia()</span>: invia 4+4 bit (prima parte alta, poi bassa)</li>
+    <li><span class="code">lcdAbilita()</span>: genera impulso per validare i dati</li>
+  </ul>
+
+  <p>Icone personalizzate:</p>
+  <ul>
+    <li><span class="code">creaIcone()</span>: carica le icone (sole, poi luna)</li>
+    <li><span class="code">lcdScrivi(0)</span>: mostra il sole 🌞</li>
+    <li><span class="code">lcdScrivi(1)</span>: mostra la luna 🌙</li>
+  </ul>
+
+  <h2>🖥️ Aggiornamento del Display (<span class="code">aggiornaDisplay()</span>)</h2>
+  <p>A seconda dello stato dell’allarme:</p>
+  <ul>
+    <li>Se attivo: mostra <strong>INTRUSIONE RILEVATA</strong></li>
+    <li>Se disattivo: mostra <strong>ALLARME DISATTIVO</strong></li>
+  </ul>
+  <p>In alto a destra (colonna 15, riga 0) mostra:</p>
+  <ul>
+    <li>Sole (0) se è giorno (luce ≥ soglia)</li>
+    <li>Luna (1) se è notte (luce &lt; soglia)</li>
+  </ul>
+
+  <h2>🌘 Aggiornamento Icona Giorno/Notte (<span class="code">aggiornaIconaLuce()</span>)</h2>
+  <p>Aggiorna l’icona giorno/notte solo se:</p>
+  <ul>
+    <li>Cambia la luce (da giorno a notte o viceversa)</li>
+    <li>L’allarme è disattivato (per non sovrascrivere il messaggio “INTRUSIONE”)</li>
+  </ul>
+
+  <h2>🔄 Movimento Lento del Servo (<span class="code">muoviServoLento()</span>)</h2>
+  <p>Il cancello si muove lentamente, 1 grado alla volta con un ritardo di 20 ms:</p>
+  <pre><span class="code">
+for (int a = inizio; a &lt;= fine; a++) {
+  cancello.write(a);
+  delay(20);
+}
+  </span></pre>
+  <p>Lo stesso vale al contrario per la chiusura.</p>
+
+
+    <div class="footer-container">
+      <footer>
+        <p>2025 Progetto Arduino - Giardino Intelligente Anti-Furto</p>
+      </footer>
+    </div>
+    
+    </body>
+</html>
